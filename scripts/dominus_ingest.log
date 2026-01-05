@@ -1,0 +1,80 @@
+[2026-01-05 11:01:06] === INICIO ingest ===
+[2026-01-05 11:01:06] Ventana: desde=2026-01-04 00:00:00 hasta=2026-01-05 10:51:06 (lag=10m lookback=30m)
+[2026-01-05 11:01:06] RUN creado id=4 date=2026-01-04
+[2026-01-05 11:01:11] branch=635 eds=3 day=2026-01-04 => ins=519 upd=0 skip=0
+[2026-01-05 11:01:15] branch=2023 eds=4 day=2026-01-04 => ins=876 upd=0 skip=0
+[2026-01-05 11:01:20] branch=553 eds=5 day=2026-01-04 => ins=448 upd=0 skip=0
+[2026-01-05 11:01:24] branch=12 eds=6 day=2026-01-04 => ins=979 upd=0 skip=0
+[2026-01-05 11:01:29] branch=1740 eds=7 day=2026-01-04 => ins=907 upd=0 skip=0
+[2026-01-05 11:01:34] branch=975 eds=8 day=2026-01-04 => ins=672 upd=0 skip=0
+[2026-01-05 11:01:38] branch=744 eds=9 day=2026-01-04 => ins=750 upd=0 skip=0
+[2026-01-05 11:01:43] branch=1155 eds=10 day=2026-01-04 => ins=990 upd=0 skip=0
+[2026-01-05 11:01:47] branch=1948 eds=11 day=2026-01-04 => ins=507 upd=0 skip=0
+[2026-01-05 11:01:52] branch=497 eds=2 day=2026-01-04 => ins=213 upd=0 skip=0
+[2026-01-05 11:01:54] branch=635 eds=3 day=2026-01-05 => ins=214 upd=0 skip=5
+[2026-01-05 11:01:57] branch=2023 eds=4 day=2026-01-05 => ins=264 upd=0 skip=9
+[2026-01-05 11:01:59] branch=553 eds=5 day=2026-01-05 => ins=233 upd=0 skip=9
+[2026-01-05 11:02:02] branch=12 eds=6 day=2026-01-05 => ins=514 upd=0 skip=11
+[2026-01-05 11:02:05] branch=1740 eds=7 day=2026-01-05 => ins=470 upd=0 skip=4
+[2026-01-05 11:02:07] branch=975 eds=8 day=2026-01-05 => ins=176 upd=0 skip=9
+[2026-01-05 11:02:09] branch=744 eds=9 day=2026-01-05 => ins=234 upd=0 skip=4
+[2026-01-05 11:02:12] branch=1155 eds=10 day=2026-01-05 => ins=252 upd=0 skip=3
+[2026-01-05 11:02:14] branch=1948 eds=11 day=2026-01-05 => ins=216 upd=0 skip=8
+[2026-01-05 11:02:16] branch=497 eds=2 day=2026-01-05 => ins=73 upd=0 skip=2
+[2026-01-05 11:02:16] === FIN OK run_id=4 ins=9507 upd=0 skip=64 t=69.09s ===
+[2026-01-05 11:03:54] === INICIO ingest ===
+[2026-01-05 11:03:54] Ventana: desde=2026-01-05 10:21:06 hasta=2026-01-05 10:53:54 (lag=10m lookback=30m)
+[2026-01-05 11:03:54] RUN creado id=5 date=2026-01-05
+[2026-01-05 11:03:57] branch=635 eds=3 day=2026-01-05 => ins=1 upd=2 skip=204
+[2026-01-05 11:03:59] branch=2023 eds=4 day=2026-01-05 => ins=2 upd=6 skip=249
+[2026-01-05 11:04:02] branch=553 eds=5 day=2026-01-05 => ins=2 upd=7 skip=222
+[2026-01-05 11:04:05] branch=12 eds=6 day=2026-01-05 => ins=1 upd=24 skip=491
+[2026-01-05 11:04:08] branch=1740 eds=7 day=2026-01-05 => ins=2 upd=20 skip=442
+[2026-01-05 11:04:10] branch=975 eds=8 day=2026-01-05 => ins=1 upd=8 skip=158
+[2026-01-05 11:04:12] branch=744 eds=9 day=2026-01-05 => ins=1 upd=5 skip=209
+[2026-01-05 11:04:14] branch=1155 eds=10 day=2026-01-05 => ins=0 upd=4 skip=238
+[2026-01-05 11:04:17] branch=1948 eds=11 day=2026-01-05 => ins=1 upd=0 skip=205
+[2026-01-05 11:04:19] branch=497 eds=2 day=2026-01-05 => ins=1 upd=1 skip=65
+[2026-01-05 11:04:19] === FIN OK run_id=5 ins=12 upd=77 skip=2483 t=25.34s ===
+[2026-01-05 11:08:29] === INICIO ingest ===
+[2026-01-05 11:08:29] Ventana: desde=2026-01-05 10:23:54 hasta=2026-01-05 10:58:29 (lag=10m lookback=30m)
+[2026-01-05 11:08:29] RUN creado id=6 date=2026-01-05
+[2026-01-05 11:08:31] branch=635 eds=3 day=2026-01-05 => ins=2 upd=3 skip=203
+[2026-01-05 11:08:33] branch=2023 eds=4 day=2026-01-05 => ins=3 upd=6 skip=252
+[2026-01-05 11:08:35] branch=553 eds=5 day=2026-01-05 => ins=8 upd=7 skip=218
+[2026-01-05 11:08:38] branch=12 eds=6 day=2026-01-05 => ins=6 upd=21 skip=495
+[2026-01-05 11:08:40] branch=1740 eds=7 day=2026-01-05 => ins=2 upd=22 skip=448
+[2026-01-05 11:08:43] branch=975 eds=8 day=2026-01-05 => ins=3 upd=6 skip=161
+[2026-01-05 11:08:45] branch=744 eds=9 day=2026-01-05 => ins=2 upd=5 skip=213
+[2026-01-05 11:08:48] branch=1155 eds=10 day=2026-01-05 => ins=1 upd=2 skip=240
+[2026-01-05 11:08:50] branch=1948 eds=11 day=2026-01-05 => ins=3 upd=0 skip=210
+[2026-01-05 11:08:52] branch=497 eds=2 day=2026-01-05 => ins=1 upd=2 skip=65
+[2026-01-05 11:08:52] === FIN OK run_id=6 ins=31 upd=74 skip=2505 t=23.38s ===
+[2026-01-05 11:21:28] === INICIO ingest ===
+[2026-01-05 11:21:28] Ventana: desde=2026-01-05 10:28:29 hasta=2026-01-05 11:11:28 (lag=10m lookback=30m)
+[2026-01-05 11:21:28] RUN creado id=7 date=2026-01-05
+[2026-01-05 11:21:30] branch=635 eds=3 day=2026-01-05 => ins=4 upd=3 skip=207
+[2026-01-05 11:21:32] branch=2023 eds=4 day=2026-01-05 => ins=19 upd=3 skip=251
+[2026-01-05 11:21:35] branch=553 eds=5 day=2026-01-05 => ins=7 upd=11 skip=223
+[2026-01-05 11:21:37] branch=12 eds=6 day=2026-01-05 => ins=12 upd=24 skip=498
+[2026-01-05 11:21:40] branch=1740 eds=7 day=2026-01-05 => ins=15 upd=21 skip=449
+[2026-01-05 11:21:42] branch=975 eds=8 day=2026-01-05 => ins=12 upd=6 skip=161
+[2026-01-05 11:21:44] branch=744 eds=9 day=2026-01-05 => ins=6 upd=6 skip=219
+[2026-01-05 11:21:47] branch=1155 eds=10 day=2026-01-05 => ins=5 upd=1 skip=241
+[2026-01-05 11:21:49] branch=1948 eds=11 day=2026-01-05 => ins=14 upd=1 skip=203
+[2026-01-05 11:21:51] branch=497 eds=2 day=2026-01-05 => ins=6 upd=3 skip=64
+[2026-01-05 11:21:51] === FIN OK run_id=7 ins=100 upd=79 skip=2516 t=22.86s ===
+[2026-01-05 11:38:10] === INICIO ingest ===
+[2026-01-05 11:38:10] Ventana: desde=2026-01-05 10:41:28 hasta=2026-01-05 11:28:10 (lag=10m lookback=30m)
+[2026-01-05 11:38:10] RUN creado id=8 date=2026-01-05
+[2026-01-05 11:38:12] branch=635 eds=3 day=2026-01-05 => ins=14 upd=2 skip=213
+[2026-01-05 11:38:15] branch=2023 eds=4 day=2026-01-05 => ins=10 upd=6 skip=266
+[2026-01-05 11:38:18] branch=553 eds=5 day=2026-01-05 => ins=9 upd=10 skip=235
+[2026-01-05 11:38:21] branch=12 eds=6 day=2026-01-05 => ins=20 upd=21 skip=508
+[2026-01-05 11:38:23] branch=1740 eds=7 day=2026-01-05 => ins=15 upd=22 skip=464
+[2026-01-05 11:38:26] branch=975 eds=8 day=2026-01-05 => ins=12 upd=10 skip=169
+[2026-01-05 11:38:30] branch=744 eds=9 day=2026-01-05 => ins=10 upd=6 skip=230
+[2026-01-05 11:38:32] branch=1155 eds=10 day=2026-01-05 => ins=6 upd=3 skip=251
+[2026-01-05 11:38:35] branch=1948 eds=11 day=2026-01-05 => ins=10 upd=5 skip=210
+[2026-01-05 11:38:39] branch=497 eds=2 day=2026-01-05 => ins=2 upd=4 skip=71
+[2026-01-05 11:38:39] === FIN OK run_id=8 ins=108 upd=89 skip=2617 t=29.12s ===
