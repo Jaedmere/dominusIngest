@@ -11,7 +11,7 @@ app/storage/
 public/storage
 public/hot
 
-# Laravel 5 & Lumen specific with changed public path
+# Laravel 5 & Lumen specific with changed public path (Hestia)
 public_html/storage
 public_html/hot
 
@@ -22,7 +22,17 @@ Homestead.json
 /.vagrant
 .phpunit.result.cache
 
-/public/build
+# ---- Vite (PROD) ----
+# NO ignorar build (necesario para producción si no compilas en el VPS)
+!/public/build
+!/public/build/**
+!/public_html/build
+!/public_html/build/**
+
+# (si quieres ignorar solo cache temporal de Vite, no el build)
+# public/.vite
+
+# Otros
 /storage/pail
 .env.backup
 .env.production
