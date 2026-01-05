@@ -5,7 +5,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\MonitorController;
 
 Route::get('/', function () {
-    return view('welcome');
+    return redirect()->route('monitor');
 });
 
 Route::get('/dashboard', function () {
