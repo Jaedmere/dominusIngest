@@ -1,21 +1,11 @@
 <?php
 declare(strict_types=1);
 
-/**
- * Dominus Ingest (PHP CLI) - QAP
- * - Token cacheado
- * - Ventana con margen de seguridad (evita perder ventas del final del día)
- * - Dedupe por (no_pedido, producto, fecha_factura) + UNIQUE en BD
- * - Logs a archivo propio
- * - Lock file para evitar doble ejecución
- * - Crea dominus_runs y amarra dominus_sales.run_id
- */
-
 date_default_timezone_set('America/Bogota');
 $startTime = microtime(true);
 
 /* =========================
-   CONFIG (AJUSTA ESTO)
+   CONFIG
 ========================= */
 $config = [
     // Dominus OAuth
@@ -51,9 +41,18 @@ $config = [
     ],
 
     // Ventana de consulta
-    'safety_lag_minutes' => 10,     // hasta = ahora - 10 min
-    'lookback_minutes'   => 30,     // retroceso adicional por si API llega tarde
-    'first_run_lookback_days' => 1, // si no existe cursor, arranca desde ayer 00:00
+    'safety_lag_minutes' => 10,
+    'lookback_minutes'   => 1440,
+    'first_run_lookback_days' => 1,
+
+    // Timeouts
+    'token_timeout' => 30,
+    'sales_timeout' => 60,   // conserva performance; sube solo si Dominus está lento
+    'connect_timeout' => 15, // evita quedarse pegado conectando
+
+    // Retries (suaves, sin volarte el tiempo)
+    'sales_retries' => 1,    // 0 o 1 recomendado para mantener ~77s
+    'sales_retry_sleep_ms' => 200,
 
     // Directorio (scripts)
     'dir' => __DIR__,
@@ -74,8 +73,7 @@ $paths = [
    LOGGING
 ========================= */
 function logLine(string $msg, string $logFile): void {
-    $line = '[' . date('Y-m-d H:i:s') . '] ' . $msg . PHP_EOL;
-    file_put_contents($logFile, $line, FILE_APPEND);
+    file_put_contents($logFile, '[' . date('Y-m-d H:i:s') . '] ' . $msg . PHP_EOL, FILE_APPEND);
 }
 
 /* =========================
@@ -97,7 +95,6 @@ function acquireLock(string $lockFile, string $logFile) {
     fflush($fp);
     return $fp;
 }
-
 function releaseLock($fp): void {
     flock($fp, LOCK_UN);
     fclose($fp);
@@ -124,14 +121,14 @@ function getToken(array $config, array $paths): ?string {
     $ch = curl_init($config['token_url']);
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => 30,
+        CURLOPT_TIMEOUT => $config['token_timeout'],
         CURLOPT_POST => true,
         CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
         CURLOPT_POSTFIELDS => $payload,
     ]);
 
-    $out = curl_exec($ch);
-    $err = curl_error($ch);
+    $out  = curl_exec($ch);
+    $err  = curl_error($ch);
     $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
 
@@ -149,7 +146,6 @@ function getToken(array $config, array $paths): ?string {
     $token = (string)$json['access_token'];
     $expiresIn = (int)($json['expires_in'] ?? 3600);
 
-    // margen: 5 min
     $margin = 300;
     $expAt = time() + max(60, $expiresIn - $margin);
 
@@ -181,7 +177,6 @@ function getWindow(array $config, array $paths): array {
 
     return [$desde, $hasta];
 }
-
 function saveCursor(string $hasta, array $paths): void {
     file_put_contents($paths['cursor'], $hasta);
 }
@@ -224,7 +219,6 @@ function createRun(mysqli $db, array $config, string $runDateYmd, int $branchesC
     $stmt->close();
     return $runId;
 }
-
 function finishRunOk(mysqli $db, array $config, int $runId, int $ins, int $upd, int $skip): void {
     $sql = "
         UPDATE {$config['table_runs']}
@@ -243,7 +237,6 @@ function finishRunOk(mysqli $db, array $config, int $runId, int $ins, int $upd, 
     if (!$stmt->execute()) throw new RuntimeException("RUN ok error: " . $stmt->error);
     $stmt->close();
 }
-
 function finishRunFail(mysqli $db, array $config, int $runId, string $errorMsg): void {
     $sql = "
         UPDATE {$config['table_runs']}
@@ -256,7 +249,6 @@ function finishRunFail(mysqli $db, array $config, int $runId, string $errorMsg):
     $stmt = $db->prepare($sql);
     if (!$stmt) return;
 
-    // recortamos para que no reviente la columna text igual aguanta, pero mejor limpio:
     $errorMsg = mb_substr($errorMsg, 0, 65000);
     $stmt->bind_param('si', $errorMsg, $runId);
     $stmt->execute();
@@ -264,93 +256,143 @@ function finishRunFail(mysqli $db, array $config, int $runId, string $errorMsg):
 }
 
 /* =========================
-   FETCH SALES
+   FETCH SALES (optimizado, sin reventar tiempo)
 ========================= */
 function fetchSales(string $token, int $branchId, string $dateYmd, array $config, array $paths): ?array {
     $payload = json_encode(['date' => $dateYmd, 'branch_id' => $branchId], JSON_UNESCAPED_SLASHES);
 
-    $ch = curl_init($config['sales_url']);
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => 60,
-        CURLOPT_CUSTOMREQUEST => 'GET',
-        CURLOPT_HTTPHEADER => [
-            "Authorization: Bearer $token",
-            "Content-Type: application/json",
-        ],
-        CURLOPT_POSTFIELDS => $payload,
-    ]);
+    $tries = 0;
+    $maxTries = 1 + max(0, (int)($config['sales_retries'] ?? 0));
 
-    $out = curl_exec($ch);
-    $err = curl_error($ch);
-    $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
+    while ($tries < $maxTries) {
+        $tries++;
 
-    if ($out === false || $code < 200 || $code >= 300) {
+        $ch = curl_init($config['sales_url']);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CONNECTTIMEOUT => (int)$config['connect_timeout'],
+            CURLOPT_TIMEOUT => (int)$config['sales_timeout'],
+            CURLOPT_CUSTOMREQUEST => 'GET',
+            CURLOPT_HTTPHEADER => [
+                "Authorization: Bearer $token",
+                "Content-Type: application/json",
+            ],
+            CURLOPT_POSTFIELDS => $payload,
+        ]);
+
+        $out  = curl_exec($ch);
+        $err  = curl_error($ch);
+        $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($out !== false && $code >= 200 && $code < 300) {
+            $json = json_decode($out, true);
+            $sales = $json['data']['sales'] ?? null;
+            return is_array($sales) ? $sales : [];
+        }
+
+        // si fue timeout u otro error, reintenta 1 vez (máximo) y ya
+        if ($tries < $maxTries) {
+            usleep(((int)$config['sales_retry_sleep_ms']) * 1000);
+            continue;
+        }
+
         logLine("ERROR ventas branch=$branchId date=$dateYmd HTTP=$code err=$err", $paths['log']);
         return null;
     }
 
-    $json = json_decode($out, true);
-    $sales = $json['data']['sales'] ?? null;
-
-    if (!is_array($sales)) {
-        logLine("INFO sin ventas branch=$branchId date=$dateYmd", $paths['log']);
-        return [];
-    }
-    return $sales;
+    return null;
 }
 
 /* =========================
-   FILTRO POR VENTANA
+   WINDOW CHECK (rápido)
 ========================= */
-function inWindow(?string $fechaFactura, string $desde, string $hasta): bool {
+function inWindowTs(?string $fechaFactura, int $desdeTs, int $hastaTs): bool {
     if (!$fechaFactura) return false;
     $ts = strtotime($fechaFactura);
-    return ($ts >= strtotime($desde) && $ts <= strtotime($hasta));
+    return ($ts >= $desdeTs && $ts <= $hastaTs);
 }
 
 /* =========================
-   INGESTA (AHORA CON run_id)
+   PREPARE UPSERT (1 sola vez)
 ========================= */
-function ingestSales(mysqli $db, array $sales, int $runId, int $idEds, string $desde, string $hasta, array $config): array {
-    $inserted = 0;
-    $updated = 0;
-    $skipped = 0;
+function prepareUpsert(mysqli $db, array $config): mysqli_stmt {
+    $table = $config['table_sales'];
 
-    // OJO: ya NO va NULL, va run_id real
-    $sqlInsert = "
-        INSERT IGNORE INTO {$config['table_sales']}
-        (run_id, id_eds, no_pedido, no_factura, fecha_factura, doc_vend, nit_cliente, nombre_cliente, convenio, panel, cara, placa, km, otro, producto, referencia, cantidad, ppu, iva, ipoconsumo, total, created_at, updated_at)
-        VALUES
-        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+    $sqlUpsert = "
+        INSERT INTO {$table} (
+            run_id, id_eds, no_pedido, no_factura, fecha_factura,
+            doc_vend, nit_cliente, nombre_cliente, convenio,
+            panel, cara, placa, km, otro,
+            producto, referencia,
+            cantidad, ppu, iva, ipoconsumo, total,
+            created_at, updated_at
+        ) VALUES (
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW()
+        )
+        ON DUPLICATE KEY UPDATE
+            placa = CASE
+                WHEN (IFNULL(placa,'') = '' AND IFNULL(VALUES(placa),'') <> '') THEN VALUES(placa)
+                ELSE placa
+            END,
+            cantidad   = CASE WHEN cantidad   <> VALUES(cantidad)   THEN VALUES(cantidad)   ELSE cantidad   END,
+            ppu        = CASE WHEN ppu        <> VALUES(ppu)        THEN VALUES(ppu)        ELSE ppu        END,
+            total      = CASE WHEN total      <> VALUES(total)      THEN VALUES(total)      ELSE total      END,
+            iva        = CASE WHEN iva        <> VALUES(iva)        THEN VALUES(iva)        ELSE iva        END,
+            ipoconsumo = CASE WHEN ipoconsumo <> VALUES(ipoconsumo) THEN VALUES(ipoconsumo) ELSE ipoconsumo END,
+            km         = CASE WHEN km         <> VALUES(km)         THEN VALUES(km)         ELSE km         END,
+            convenio = CASE
+                WHEN IFNULL(convenio,'') <> IFNULL(VALUES(convenio),'') THEN VALUES(convenio)
+                ELSE convenio
+            END,
+            run_id = run_id,
+            updated_at = IF(
+                (IFNULL(placa,'') = '' AND IFNULL(VALUES(placa),'') <> '')
+                OR cantidad   <> VALUES(cantidad)
+                OR ppu        <> VALUES(ppu)
+                OR total      <> VALUES(total)
+                OR iva        <> VALUES(iva)
+                OR ipoconsumo <> VALUES(ipoconsumo)
+                OR km         <> VALUES(km)
+                OR IFNULL(convenio,'') <> IFNULL(VALUES(convenio),''),
+                NOW(),
+                updated_at
+            )
     ";
-    $stmtInsert = $db->prepare($sqlInsert);
-    if (!$stmtInsert) throw new RuntimeException("Prepare INSERT falló: " . $db->error);
 
-    $sqlUpdatePlaca = "
-        UPDATE {$config['table_sales']}
-        SET placa = ?, updated_at = NOW(), run_id = COALESCE(run_id, ?)
-        WHERE no_pedido = ? AND producto = ? AND fecha_factura = ?
-          AND (placa IS NULL OR placa = '' OR placa <> ?)
-    ";
-    $stmtUpdate = $db->prepare($sqlUpdatePlaca);
-    if (!$stmtUpdate) throw new RuntimeException("Prepare UPDATE falló: " . $db->error);
+    $stmt = $db->prepare($sqlUpsert);
+    if (!$stmt) throw new RuntimeException("Prepare UPSERT falló: " . $db->error);
+    return $stmt;
+}
+
+/* =========================
+   INGESTA (misma esencia, menos skips tontos, sin logs extra)
+   - Calcula strtotime UNA vez por venta
+   - Producto: usa name si viene, si no, usa code (evita perder data)
+========================= */
+function ingestSales(mysqli_stmt $stmtUpsert, array $sales, int $runId, int $idEds, int $desdeTs, int $hastaTs): array {
+    $inserted  = 0;
+    $updated   = 0;
+    $unchanged = 0;
+    $skipped   = 0;
 
     foreach ($sales as $sale) {
-        $no_pedido  = (string)($sale['document'] ?? '');
-        $no_factura = isset($sale['is_bill']) ? (string)$sale['is_bill'] : null;
+        $no_pedido  = trim((string)($sale['document'] ?? ''));
         $fechaDoc   = $sale['date_sale'] ?? null;
 
         if ($no_pedido === '' || !$fechaDoc) { $skipped++; continue; }
-        if (!inWindow($fechaDoc, $desde, $hasta)) { $skipped++; continue; }
 
-        $doc_vend = isset($sale['employee_document']) ? (string)$sale['employee_document'] : null;
+        $ts = strtotime((string)$fechaDoc);
+        if ($ts < $desdeTs || $ts > $hastaTs) { $skipped++; continue; }
+
+        // Campos opcionales
+        $no_factura = isset($sale['is_bill']) ? (string)$sale['is_bill'] : null;
+        $doc_vend   = isset($sale['employee_document']) ? (string)$sale['employee_document'] : null;
 
         $customerDoc = isset($sale['customer_document']) ? (string)$sale['customer_document'] : null;
         $first = $sale['customer_first_name'] ?? '';
         $last  = $sale['customer_last_name'] ?? '';
-        $nombreCliente = trim($first . ' ' . $last);
+        $nombreCliente = trim((string)$first . ' ' . (string)$last);
         $nombreCliente = ($nombreCliente !== '') ? $nombreCliente : null;
 
         $convenio = 'Efectivo';
@@ -370,65 +412,58 @@ function ingestSales(mysqli $db, array $sales, int $runId, int $idEds, string $d
         if (!is_array($products) || empty($products)) { $skipped++; continue; }
 
         foreach ($products as $product) {
-            $producto = $product['product_name'] ?? null;
-            if (!$producto) { $skipped++; continue; }
-            $producto = (string)$producto;
+            $nombreProd = trim((string)($product['product_name'] ?? ''));
+            $codProd    = trim((string)($product['product_code'] ?? ''));
 
-            $referencia = isset($product['product_code']) ? (string)$product['product_code'] : null;
+            $producto = ($nombreProd !== '') ? $nombreProd : $codProd;
+            if ($producto === '') { $skipped++; continue; }
 
-            $cantidad = (float)($product['quantity'] ?? 0);
-            $ppu      = (float)($product['price'] ?? 0);
-            $iva      = (float)($product['iva'] ?? 0);
-            $ipoc     = (float)($product['impoconsumo'] ?? 0);
-            $total    = (float)($product['total'] ?? 0);
+            $referencia = ($codProd !== '') ? $codProd : null;
 
-            // 21 valores -> types deben coincidir
-            $stmtInsert->bind_param(
+            // Redondeo (evita updates fantasma por float)
+            $cantidad = round((float)($product['quantity'] ?? 0), 3);
+            $ppu      = round((float)($product['price'] ?? 0), 2);
+            $iva      = round((float)($product['iva'] ?? 0), 2);
+            $ipoc     = round((float)($product['impoconsumo'] ?? 0), 2);
+            $total    = round((float)($product['total'] ?? 0), 2);
+
+            $stmtUpsert->bind_param(
                 'ii' . str_repeat('s', 10) . 'i' . 's' . 'ss' . str_repeat('d', 5),
-                $runId,         // i
-                $idEds,         // i
-                $no_pedido,     // s
-                $no_factura,    // s
-                $fechaDoc,      // s
-                $doc_vend,      // s
-                $customerDoc,   // s
-                $nombreCliente, // s
-                $convenio,      // s
-                $panel,         // s
-                $cara,          // s
-                $placa,         // s
-                $km,            // i
-                $otro,          // s
-                $producto,      // s
-                $referencia,    // s
-                $cantidad,      // d
-                $ppu,           // d
-                $iva,           // d
-                $ipoc,          // d
-                $total          // d
+                $runId,
+                $idEds,
+                $no_pedido,
+                $no_factura,
+                $fechaDoc,
+                $doc_vend,
+                $customerDoc,
+                $nombreCliente,
+                $convenio,
+                $panel,
+                $cara,
+                $placa,
+                $km,
+                $otro,
+                $producto,
+                $referencia,
+                $cantidad,
+                $ppu,
+                $iva,
+                $ipoc,
+                $total
             );
 
-            if (!$stmtInsert->execute()) {
-                throw new RuntimeException("INSERT error: " . $stmtInsert->error);
+            if (!$stmtUpsert->execute()) {
+                throw new RuntimeException("UPSERT error: " . $stmtUpsert->error);
             }
 
-            if ($stmtInsert->affected_rows === 1) {
-                $inserted++;
-            } else {
-                // existía: si placa cambió, actualizamos placa y garantizamos run_id si estaba null
-                $stmtUpdate->bind_param('sissss', $placa, $runId, $no_pedido, $producto, $fechaDoc, $placa);
-                if (!$stmtUpdate->execute()) {
-                    throw new RuntimeException("UPDATE error: " . $stmtUpdate->error);
-                }
-                $updated += ($stmtUpdate->affected_rows > 0) ? 1 : 0;
-            }
+            $aff = $stmtUpsert->affected_rows; // 1 insert, 2 update real, 0 unchanged
+            if ($aff === 1) $inserted++;
+            elseif ($aff === 2) $updated++;
+            else $unchanged++;
         }
     }
 
-    $stmtInsert->close();
-    $stmtUpdate->close();
-
-    return compact('inserted', 'updated', 'skipped');
+    return compact('inserted','updated','unchanged','skipped');
 }
 
 /* =========================
@@ -447,26 +482,26 @@ try {
     if (!$token) throw new RuntimeException("No se pudo obtener token.");
 
     [$desde, $hasta] = getWindow($config, $paths);
+    $desdeTs = strtotime($desde);
+    $hastaTs = strtotime($hasta);
+
     logLine("Ventana: desde=$desde hasta=$hasta (lag={$config['safety_lag_minutes']}m lookback={$config['lookback_minutes']}m)", $paths['log']);
 
     $db = dbConnect($config, $paths);
     if (!$db) throw new RuntimeException("No se pudo conectar a BD.");
 
-    // 1) crear RUN (se deja persistido)
     $runDateYmd = substr($desde, 0, 10);
     $runId = createRun($db, $config, $runDateYmd, count($config['branches']));
     logLine("RUN creado id=$runId date=$runDateYmd", $paths['log']);
 
-    // 2) transacción SOLO para ventas
+    $stmtUpsert = prepareUpsert($db, $config);
     $db->autocommit(false);
 
     $fromDay = new DateTime(substr($desde, 0, 10));
     $toDay   = new DateTime(substr($hasta, 0, 10));
     $toDay->setTime(0,0,0);
 
-    $totalInserted = 0;
-    $totalUpdated  = 0;
-    $totalSkipped  = 0;
+    $totIns = 0; $totUpd = 0; $totUnc = 0; $totSkip = 0;
 
     for ($day = clone $fromDay; $day <= $toDay; $day->modify('+1 day')) {
         $dateYmd = $day->format('Y-m-d');
@@ -476,42 +511,41 @@ try {
             $idEds    = (int)$mapping['id_eds'];
 
             $sales = fetchSales($token, $branchId, $dateYmd, $config, $paths);
-            if ($sales === null || empty($sales)) continue;
+            if ($sales === null) continue;
+            if (empty($sales)) continue;
 
-            $stats = ingestSales($db, $sales, $runId, $idEds, $desde, $hasta, $config);
-            $totalInserted += $stats['inserted'];
-            $totalUpdated  += $stats['updated'];
-            $totalSkipped  += $stats['skipped'];
+            $st = ingestSales($stmtUpsert, $sales, $runId, $idEds, $desdeTs, $hastaTs);
 
-            logLine("branch=$branchId eds=$idEds day=$dateYmd => ins={$stats['inserted']} upd={$stats['updated']} skip={$stats['skipped']}", $paths['log']);
+            $totIns  += $st['inserted'];
+            $totUpd  += $st['updated'];
+            $totUnc  += $st['unchanged'];
+            $totSkip += $st['skipped'];
+
+            logLine(
+                "branch=$branchId eds=$idEds day=$dateYmd => ins={$st['inserted']} upd={$st['updated']} unchanged={$st['unchanged']} skipped={$st['skipped']}",
+                $paths['log']
+            );
         }
     }
 
     $db->commit();
     $db->autocommit(true);
+    $stmtUpsert->close();
 
-    // 3) cerrar RUN ok
-    finishRunOk($db, $config, $runId, $totalInserted, $totalUpdated, $totalSkipped);
-
-    // 4) guardar cursor
+    finishRunOk($db, $config, $runId, $totIns, $totUpd, $totSkip);
     saveCursor($hasta, $paths);
 
     $elapsed = number_format(microtime(true) - $startTime, 2);
-    logLine("=== FIN OK run_id=$runId ins=$totalInserted upd=$totalUpdated skip=$totalSkipped t={$elapsed}s ===", $paths['log']);
+    logLine("=== FIN OK run_id=$runId ins=$totIns upd=$totUpd unchanged=$totUnc skipped=$totSkip t={$elapsed}s ===", $paths['log']);
 
 } catch (Throwable $e) {
     logLine("=== FIN FAIL: " . $e->getMessage(), $paths['log']);
 
     if ($db instanceof mysqli) {
-        // rollback ventas si estaba en transacción
         @ $db->rollback();
         @ $db->autocommit(true);
 
-        // marcar run como failed si alcanzó a crearse
-        if ($runId > 0) {
-            finishRunFail($db, $config, $runId, $e->getMessage());
-        }
-
+        if ($runId > 0) finishRunFail($db, $config, $runId, $e->getMessage());
         @ $db->close();
     }
 } finally {
