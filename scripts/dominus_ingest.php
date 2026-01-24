@@ -28,11 +28,11 @@ $config = [
 
     // Branch mappings
     'branches' => [
-        ['branch_id' => 635,  'id_eds' => 3],
+        ['branch_id' => 635,  'id_eds' => 3], //BIZERTA
         ['branch_id' => 2023, 'id_eds' => 4],
         ['branch_id' => 553,  'id_eds' => 5],
         ['branch_id' => 12,   'id_eds' => 6],
-        ['branch_id' => 1740, 'id_eds' => 7],
+        ['branch_id' => 1740, 'id_eds' => 7], // DESCANSO
         ['branch_id' => 975,  'id_eds' => 8],
         ['branch_id' => 744,  'id_eds' => 9],
         ['branch_id' => 1155, 'id_eds' => 10],
